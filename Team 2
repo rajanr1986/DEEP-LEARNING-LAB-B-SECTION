@@ -1,0 +1,46 @@
+import pandas as pd
+import numpy as np
+import tensorflow as tf
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
+
+# Load the dataset
+df = pd.read_excel("WTA_Student_Scores_1000.xlsx")
+
+# Updated subject columns based on actual data
+subject_cols = ["Math Score", "Science Score", "English Score"]
+
+# Feature matrix
+X = df[subject_cols].values
+
+# Normalize features
+scaler = MinMaxScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Target: subject with highest score
+y = np.argmax(X_scaled, axis=1)
+
+# Train-test split
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+
+# Build and compile model
+model = tf.keras.Sequential([
+    tf.keras.layers.Dense(32, activation='relu', input_shape=(len(subject_cols),)),
+    tf.keras.layers.Dense(32, activation='relu'),
+    tf.keras.layers.Dense(len(subject_cols), activation='softmax')
+])
+
+model.compile(optimizer='adam',
+              loss='sparse_categorical_crossentropy',
+              metrics=['accuracy'])
+
+# Train the model
+model.fit(X_train, y_train, epochs=50, validation_data=(X_test, y_test))
+
+# Predict top subject
+pred_probs = model.predict(X_scaled)
+winners = np.argmax(pred_probs, axis=1)
+df["Predicted_Top_Subject"] = [subject_cols[i].replace(" Score", "") for i in winners]
+
+# Show prediction result
+print(df[["Student", "Predicted_Top_Subject"]].head())
