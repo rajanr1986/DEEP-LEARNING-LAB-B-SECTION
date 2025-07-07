@@ -1,0 +1,108 @@
+from flask import Flask, render_template, request, redirect, url_for
+import pandas as pd
+import numpy as np
+import torch
+import torch.nn as nn
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import io, base64
+import os
+
+app = Flask(__name__)
+
+# === Load and preprocess dataset ===
+file_path = r"C:\Users\HP\Desktop\zoon\Task_Timing_Log_1000_Entries.xlsx"  # Change to actual
+df = pd.read_excel(file_path)
+df['Start Time'] = pd.to_datetime(df['Start Time'])
+df['End Time'] = pd.to_datetime(df['End Time'])
+df['Duration'] = (df['End Time'] - df['Start Time']).dt.total_seconds() / 60.0
+df['Task Name'] = df['Task Name'].str.strip().str.lower()
+df = df.sort_values(by=['Task Name', 'Start Time'])
+df['Repetition'] = df.groupby('Task Name').cumcount() + 1
+task_to_id = {task: i for i, task in enumerate(df['Task Name'].unique())}
+df['Task ID'] = df['Task Name'].map(task_to_id)
+
+X = df[['Repetition', 'Duration', 'Task ID']].values.astype(np.float32)
+y = df['Quality Score'].values.astype(np.float32).reshape(-1, 1)
+X_tensor = torch.tensor(X)
+y_tensor = torch.tensor(y)
+
+# === Neural network model ===
+class LearningRegressor(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.fc1 = nn.Linear(3, 12)
+        self.relu1 = nn.ReLU()
+        self.fc2 = nn.Linear(12, 8)
+        self.relu2 = nn.ReLU()
+        self.fc3 = nn.Linear(8, 1)
+
+    def forward(self, x):
+        x = self.relu1(self.fc1(x))
+        x = self.relu2(self.fc2(x))
+        return self.fc3(x)
+
+model = LearningRegressor()
+criterion = nn.MSELoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+for epoch in range(300):
+    model.train()
+    optimizer.zero_grad()
+    outputs = model(X_tensor)
+    loss = criterion(outputs, y_tensor)
+    loss.backward()
+    optimizer.step()
+
+# === Flask Routes ===
+
+@app.route('/')
+def welcome():
+    return render_template("welcome.html")
+
+@app.route('/predict', methods=['GET', 'POST'])
+def predict():
+    if request.method == 'POST':
+        task = request.form['task'].strip().lower()
+        repetition = int(request.form['repetition'])
+        duration = float(request.form['duration'])
+
+        if task not in task_to_id:
+            return render_template("predict.html", error="Unknown task name.")
+        
+        task_id = task_to_id[task]
+        input_tensor = torch.tensor([[repetition, duration, float(task_id)]])
+        predicted_score = model(input_tensor).item()
+
+        # What-if Improvement
+        improved_input = torch.tensor([[repetition + 1, duration + 20, float(task_id)]])
+        improved_score = model(improved_input).item()
+
+        return render_template("result.html",
+                               task=task.title(),
+                               repetition=repetition,
+                               duration=duration,
+                               score=predicted_score,
+                               improved_score=improved_score)
+    return render_template("predict.html")
+
+@app.route('/dashboard')
+def dashboard():
+    avg_scores = df.groupby('Task Name')['Quality Score'].mean().sort_values(ascending=False)
+
+    plt.figure(figsize=(10, 5))
+    avg_scores.plot(kind='bar', color='skyblue')
+    plt.ylabel("Avg. Quality Score")
+    plt.title("📊 Average Task Quality Score")
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png")
+    buf.seek(0)
+    image_data = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close()
+
+    return render_template("dashboard.html", chart=image_data)
+
+if __name__ == "__main__":
+    app.run(debug=True)
