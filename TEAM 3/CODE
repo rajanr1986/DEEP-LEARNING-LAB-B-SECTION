@@ -1,0 +1,207 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy import stats
+import warnings
+warnings.filterwarnings('ignore')
+
+plt.style.use('default')
+sns.set_palette("husl")
+class SynapticLearningModel:
+    def __init__(self, optimal_days=7):
+        self.optimal_days = optimal_days
+
+    def learning_strength(self, days_gap):
+        """Calculate learning strength based on time gap between assessments"""
+        if days_gap <= 0:
+            return 0.1
+        elif days_gap <= 3:  # Cramming
+            return 0.4
+        elif days_gap <= 14:  # Optimal range
+            strength = np.exp(-0.5 * ((days_gap - self.optimal_days) / 3)**2)
+            return 0.6 + 0.4 * strength
+        else:  # Forgetting phase
+            return max(0.2, 0.8 * np.exp(-0.1 * (days_gap - 14)))
+
+    def update_synaptic_weight(self, current_weight, performance, days_gap):
+        """Update synaptic connection strength"""
+        learning_rate = 0.15
+        decay_rate = 0.05
+
+        strength = self.learning_strength(days_gap)
+        performance_norm = performance / 100.0
+
+        weight_change = learning_rate * performance_norm * strength
+        new_weight = current_weight * (1 - decay_rate) + weight_change
+
+        return np.clip(new_weight, 0.1, 1.0)
+try:
+    assessments = pd.read_csv('/content/assessments.csv')
+    student_assessment = pd.read_csv('./content/studentAssessment.csv')
+    print("OULAD dataset loaded successfully")
+
+except FileNotFoundError:
+    # Create sample data with OULAD structure for demonstration
+    np.random.seed(42)
+
+    assessments = pd.DataFrame({
+        'code_module': ['AAA']*8 + ['BBB']*8,
+        'code_presentation': ['2013J']*8 + ['2013J']*8,
+        'id_assessment': range(1, 17),
+        'assessment_type': (['TMA']*4 + ['CMA']*3 + ['Exam']*1) * 2,
+        'date': [20, 50, 80, 110, 140, 170, 200, 230] * 2,
+        'weight': [12.5]*4 + [12.5]*3 + [25]*1 + [12.5]*4 + [12.5]*3 + [25]*1
+    })
+
+    students = []
+    for student_id in range(1, 51):
+        base_ability = np.random.normal(65, 15)
+        for _, assessment in assessments.iterrows():
+            progress = (assessment['date'] / 250) * 15
+            noise = np.random.normal(0, 8)
+            score = np.clip(base_ability + progress + noise, 0, 100)
+
+            students.append({
+                'id_student': student_id,
+                'id_assessment': assessment['id_assessment'],
+                'score': score if np.random.random() > 0.05 else np.nan
+            })
+
+    student_assessment = pd.DataFrame(students)
+    print("Sample data created for demonstration")
+data = student_assessment.merge(assessments, on='id_assessment')
+data = data.dropna(subset=['score'])
+
+# Filter students with multiple assessments
+student_counts = data.groupby(['id_student', 'code_module']).size()
+good_students = student_counts[student_counts >= 3].index
+data_filtered = data.set_index(['id_student', 'code_module']).loc[good_students].reset_index()
+
+print(f"Working with {len(data_filtered)} assessment records")
+print(f"{data_filtered['id_student'].nunique()} students with 3+ assessments")
+model = SynapticLearningModel(optimal_days=7)
+results = []
+
+for (student, module), group in data_filtered.groupby(['id_student', 'code_module']):
+    group = group.sort_values('date').reset_index(drop=True)
+    synaptic_weight = 0.2
+
+    for i, row in group.iterrows():
+        if i == 0:
+            days_gap = 0
+        else:
+            days_gap = row['date'] - group.iloc[i-1]['date']
+            prev_score = group.iloc[i-1]['score']
+            synaptic_weight = model.update_synaptic_weight(
+                synaptic_weight, prev_score, days_gap
+            )
+
+        results.append({
+            'student_id': student,
+            'module': module,
+            'assessment_num': i + 1,
+            'assessment_type': row['assessment_type'],
+            'days_from_start': row['date'],
+            'actual_score': row['score'],
+            'synaptic_weight': synaptic_weight,
+            'predicted_score': synaptic_weight * 100
+        })
+
+results_df = pd.DataFrame(results)
+print(f"Generated {len(results_df)} learning trajectory points")
+days = np.arange(1, 31)
+strengths = [model.learning_strength(d) for d in days]
+
+plt.figure(figsize=(10, 6))
+plt.plot(days, strengths, 'b-', linewidth=3)
+plt.axvline(x=7, color='g', linestyle='--', label='Optimal (7 days)')
+plt.axvspan(0, 3, alpha=0.2, color='red', label='Cramming')
+plt.axvspan(3, 14, alpha=0.2, color='green', label='Optimal Range')
+plt.axvspan(14, 30, alpha=0.2, color='orange', label='Forgetting')
+plt.title('Synaptic Learning Strength vs Time Gap')
+plt.xlabel('Days Between Assessments')
+plt.ylabel('Learning Strength')
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.show()
+sample_students = results_df['student_id'].unique()[:5]
+colors = plt.cm.Set1(np.linspace(0, 1, 5))
+
+plt.figure(figsize=(10, 6))
+for i, student in enumerate(sample_students):
+    student_data = results_df[results_df['student_id'] == student]
+    plt.plot(student_data['assessment_num'], student_data['actual_score'],
+             'o-', color=colors[i], label=f'Student {student}', alpha=0.7)
+
+plt.title('Individual Learning Trajectories')
+plt.xlabel('Assessment Number')
+plt.ylabel('Score')
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.show()
+correlation = results_df['synaptic_weight'].corr(results_df['actual_score'])
+
+plt.figure(figsize=(10, 6))
+plt.scatter(results_df['synaptic_weight'], results_df['actual_score'],
+            alpha=0.6, s=20, c='purple')
+
+z = np.polyfit(results_df['synaptic_weight'], results_df['actual_score'], 1)
+p = np.poly1d(z)
+x_line = np.linspace(results_df['synaptic_weight'].min(),
+                     results_df['synaptic_weight'].max(), 100)
+plt.plot(x_line, p(x_line), 'r-', linewidth=2)
+plt.title(f'Synaptic Weight vs Performance (r = {correlation:.3f})')
+plt.xlabel('Synaptic Weight')
+plt.ylabel('Actual Score')
+plt.grid(True, alpha=0.3)
+plt.show()
+type_means = results_df.groupby('assessment_type').agg({
+    'actual_score': 'mean',
+    'synaptic_weight': 'mean'
+})
+
+x = range(len(type_means))
+width = 0.35
+
+plt.figure(figsize=(10, 6))
+plt.bar([i - width/2 for i in x], type_means['actual_score'],
+        width, label='Score', alpha=0.8, color='skyblue')
+plt.bar([i + width/2 for i in x], type_means['synaptic_weight'] * 100,
+        width, label='Weight (scaled)', alpha=0.8, color='orange')
+
+plt.title('Performance by Assessment Type')
+plt.xlabel('Assessment Type')
+plt.ylabel('Score / Weight')
+plt.xticks(x, type_means.index)
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.show()
+r2_score = correlation**2
+mae = np.mean(np.abs(results_df['actual_score'] - results_df['predicted_score']))
+
+learning_growth = results_df.groupby('student_id').agg({
+    'synaptic_weight': ['first', 'last'],
+    'actual_score': ['first', 'last']
+})
+learning_growth.columns = ['initial_weight', 'final_weight', 'initial_score', 'final_score']
+learning_growth['weight_growth'] = learning_growth['final_weight'] - learning_growth['initial_weight']
+learning_growth['score_growth'] = learning_growth['final_score'] - learning_growth['initial_score']
+
+print("Model Performance:")
+print(f"Correlation (weight-score): {correlation:.3f}")
+print(f"R² explained variance: {r2_score:.3f}")
+print(f"Mean prediction error: {mae:.1f} points")
+
+print("\nLearning Patterns:")
+print(f"Students showing improvement: {(learning_growth['weight_growth'] > 0).mean()*100:.1f}%")
+print(f"Average weight growth: {learning_growth['weight_growth'].mean():.3f}")
+print(f"Average score improvement: {learning_growth['score_growth'].mean():.1f} points")
+
+print("\nAssessment Performance:")
+for assessment_type in ['TMA', 'CMA', 'Exam']:
+    if assessment_type in results_df['assessment_type'].values:
+        type_data = results_df[results_df['assessment_type'] == assessment_type]
+        avg_score = type_data['actual_score'].mean()
+        avg_weight = type_data['synaptic_weight'].mean()
+        print(f"{assessment_type}: Score={avg_score:.1f}, Weight={avg_weight:.3f}")
