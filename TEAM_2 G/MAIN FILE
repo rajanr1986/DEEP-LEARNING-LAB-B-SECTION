@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Welcome to Student Strength Analyzer</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script>
+        function toggleDataset() {
+            const table = document.getElementById("datasetTable");
+            table.style.display = table.style.display === "none" ? "block" : "none";
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>🎓 Welcome to the Winner-Take-All Student Analyzer</h1>
+        <p>This intelligent web application uses the principles of Winner-Take-All (WTA) neural networks to analyze student performance and highlight their strongest academic subject.
+
+💡 The WTA mechanism mimics competitive behavior in neural systems — where the neuron with the highest activation suppresses the others. In our case, each subject acts like a competing neuron, and the highest-scoring subject is declared the student's dominant strength.</p>
+
+        <a href="/form"><button>🚀 Get Started</button></a>
+        <button onclick="toggleDataset()">📊 View Dataset</button>
+
+        <div id="datasetTable">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>EnrollNo</th>
+                        <th>RegNo</th>
+                        <th>Math</th>
+                        <th>Science</th>
+                        <th>English</th>
+                        <th>History</th>
+                        <th>Computer</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in dataset %}
+                    <tr>
+                        <td>{{ row['Name'] }}</td>
+                        <td>{{ row['EnrollNo'] }}</td>
+                        <td>{{ row['RegNo'] }}</td>
+                        <td>{{ row['Math'] }}</td>
+                        <td>{{ row['Science'] }}</td>
+                        <td>{{ row['English'] }}</td>
+                        <td>{{ row['History'] }}</td>
+                        <td>{{ row['Computer'] }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Enter Student Details</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h2>Enter Student Details</h2>
+        <form action="/result" method="post">
+            <input type="text" name="name" placeholder="Enter Name" required><br>
+            <input type="text" name="enroll" placeholder="Enter Enroll No" required><br>
+            <input type="text" name="reg" placeholder="Enter Reg No" required><br>
+            <button type="submit">Analyze</button>
+        </form>
+    </div>
+</body>
+</html>
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Student Result</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h2>📊 Performance Report for {{ name }}</h2>
+        <p>Enroll No: {{ enroll }} | Reg No: {{ reg }}</p>
+        <p>
+    📘 According to the marks analysis, <strong>{{ name }}</strong> has shown remarkable performance in 
+    <strong>{{ top_subject }}</strong>.
+</p>
+<p>
+    This subject stands out as their strongest academic area.
+</p>
+<p>
+    🌟 Keep nurturing this talent — it could shape a brilliant future!
+</p>
+
+
+        <canvas id="myChart" width="400" height="200"></canvas>
+
+        <button onclick="speakResult()">🔊 Speak Result</button>
+
+        <form action="/download" method="post" style="margin-top: 20px;">
+            <input type="hidden" name="name" value="{{ name }}">
+            <input type="hidden" name="enroll" value="{{ enroll }}">
+            <input type="hidden" name="reg" value="{{ reg }}">
+            <button type="submit">⬇️ Download PDF Report</button>
+        </form>
+    </div>
+
+    <script>
+        const ctx = document.getElementById('myChart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: {{ labels | safe }},
+                datasets: [{
+                    label: 'Subject Scores',
+                    data: {{ data | safe }},
+                    backgroundColor: {{ colors | safe }},
+                    borderRadius: 8
+                }]
+            },
+            options: {
+                animation: {
+                    duration: 2000,
+                    easing: 'easeOutBounce'
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100
+                    }
+                },
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+
+        {% if scores[top_subject] >= 90 %}
+        confetti({
+            particleCount: 150,
+            spread: 100,
+            origin: { y: 0.6 }
+        });
+        {% endif %}
+
+        function speakResult() {
+            const msg = new SpeechSynthesisUtterance(
+    "Result for {{ name }}. According to the analysis, your best subject is {{ top_subject }}. " +
+    "Keep nurturing this strength. It could lead to a bright future!"
+);
+            window.speechSynthesis.speak(msg);
+        }
+
+        speakResult(); // auto speak on load
+    </script>
+</body>
+</html>
+
+body {
+    font-family: 'Segoe UI', sans-serif;
+    margin: 0;
+    padding: 0;
+    background: url('/static/bg.webp') no-repeat center center fixed;
+    background-size: cover;
+    color: #333;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    backdrop-filter: blur(3px);
+}
+
+.container {
+    background: rgba(255, 255, 255, 0.92);
+    padding: 30px 40px;
+    width: 80%;
+    max-width: 700px;
+    border-radius: 16px;
+    text-align: center;
+    box-shadow: 0px 0px 20px rgba(0, 0, 0, 0.2);
+    animation: floatBox 6s infinite ease-in-out;
+    backdrop-filter: blur(3px);
+}
+
+
+input,button {
+    padding: 10px 20px;
+    margin: 10px;
+    border: none;
+    border-radius: 8px;
+    background-color: #f27aa1; /* pinkish-red */
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background 0.3s ease;
+}
+
+button:hover {
+    background-color: #008080; /* teal shade */
+}
+
+#datasetTable {
+    margin-top: 20px;
+    max-height: 300px;
+    overflow-y: auto;
+    display: none;
+    text-align: left;
+    border: 1px solid #ccc;
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+}
+
+@keyframes floatBox {
+    0% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+    100% { transform: translateY(0); }
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th, td {
+    border: 1px solid #ccc;
+    padding: 8px;
+    text-align: center;
+}
+
+th {
+    background-color: #8ec5fc;
+    color: white;
+}
+
+from flask import Flask, render_template, request, send_file
+import pandas as pd
+import json
+from fpdf import FPDF
+import os
+
+app = Flask(__name__)
+
+# Load dataset
+df = pd.read_csv("WTA_Student_Dataset_RealNames.csv")
+
+@app.route('/')
+def welcome():
+    dataset_preview = df.head(15).to_dict(orient='records')
+    return render_template('welcome.html', dataset=dataset_preview)
+
+@app.route('/form')
+def form():
+    return render_template('student_form.html')
+
+@app.route('/result', methods=['POST'])
+def result():
+    enroll = request.form['enroll']
+    reg = request.form['reg']
+    name = request.form['name']
+
+    student_row = df[
+        (df['EnrollNo'].str.lower() == enroll.lower()) &
+        (df['RegNo'].str.lower() == reg.lower()) &
+        (df['Name'].str.lower() == name.lower())
+    ]
+
+    if student_row.empty:
+        return "Student not found. Please check the details and try again."
+
+    student_data = student_row.iloc[0].to_dict()
+    scores = {k: student_data[k] for k in ['Math', 'Science', 'English', 'History', 'Computer']}
+    strongest_subject = max(scores, key=scores.get)
+
+    labels = list(scores.keys())
+    data = list(scores.values())
+
+    color_map = {
+        'Math': '#f27aa1',
+        'Science': '#008080',
+        'English': '#fca652',
+        'History': '#87ceeb',
+        'Computer': '#b19cd9'
+    }
+
+    colors = [color_map.get(k, 'gray') for k in labels]
+
+    return render_template(
+        'result.html',
+        name=name,
+        enroll=enroll,
+        reg=reg,
+        top_subject=strongest_subject,
+        labels=json.dumps(labels),
+        data=json.dumps(data),
+        colors=json.dumps(colors),
+        scores=scores
+    )
+
+@app.route('/download', methods=['POST'])
+def download():
+    name = request.form['name']
+    enroll = request.form['enroll']
+    reg = request.form['reg']
+
+    student_row = df[
+        (df['EnrollNo'].str.lower() == enroll.lower()) &
+        (df['RegNo'].str.lower() == reg.lower()) &
+        (df['Name'].str.lower() == name.lower())
+    ]
+
+    if student_row.empty:
+        return "Student not found."
+
+    data = student_row.iloc[0]
+
+    pdf = FPDF()
+    pdf.add_page()
+
+    # Title
+    pdf.set_font("Arial", 'B', 16)
+    pdf.set_text_color(0, 102, 204)
+    pdf.cell(200, 10, txt="Student Performance Report", ln=True, align='C')
+    pdf.ln(10)
+
+    # Student Info
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("Arial", size=12)
+    pdf.cell(200, 10, txt=f"Name: {data['Name']}", ln=True)
+    pdf.cell(200, 10, txt=f"Enroll No: {data['EnrollNo']}", ln=True)
+    pdf.cell(200, 10, txt=f"Reg No: {data['RegNo']}", ln=True)
+    pdf.ln(10)
+
+    # Subject Scores
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(200, 10, txt="Subject-wise Scores:", ln=True)
+    pdf.set_font("Arial", size=12)
+    for subject in ['Math', 'Science', 'English', 'History', 'Computer']:
+        pdf.cell(200, 10, txt=f"{subject}: {data[subject]}", ln=True)
+    pdf.ln(10)
+
+    # Performance Note
+    top_subject = max(['Math', 'Science', 'English', 'History', 'Computer'], key=lambda s: data[s])
+    pdf.set_font("Arial", 'I', 12)
+    pdf.set_text_color(34, 139, 34)
+    pdf.multi_cell(0, 10, f"Based on the performance analysis, {data['Name']} has shown excellence in {top_subject}. Encourage them to keep exploring their potential in this area. It can lead to a great future!")
+
+    # Save and return the PDF
+    path = "report.pdf"
+    pdf.output(path)  # No unicode; this works fine
+    return send_file(path, as_attachment=True)
+
+if __name__ == '__main__':
+    app.run(debug=True)
