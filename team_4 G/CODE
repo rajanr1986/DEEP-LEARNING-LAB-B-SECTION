@@ -1,0 +1,41 @@
+import pandas as pd
+import numpy as np
+from google.colab import files
+uploaded = files.upload()
+df = pd.read_excel('WTA_Student_Scores_1000.xlsx')
+df
+def logarithmic_decay(initial_score, num_attempts, decay_factor=5):
+    return [initial_score - decay_factor * np.log(n + 1) for n in range(num_attempts)]
+num_attempts = 10
+decay_data = []
+for idx, row in df.iterrows():
+    student = row['Student']
+    math_scores = logarithmic_decay(row['Math Score'], num_attempts)
+    science_scores = logarithmic_decay(row['Science Score'], num_attempts)
+    english_scores = logarithmic_decay(row['English Score'], num_attempts)
+for attempt in range(num_attempts):
+        decay_data.append({
+            'Student': student,
+            'Attempt': attempt + 1,
+            'Math Score': math_scores[attempt],
+            'Science Score': science_scores[attempt],
+            'English Score': english_scores[attempt]
+        })
+decay_df = pd.DataFrame(decay_data)
+print(decay_df.tail())
+import matplotlib.pyplot as plt
+for student in decay_df['Student'].unique():
+    student_data = decay_df[decay_df['Student'] == student]
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(student_data['Attempt'], student_data['Math Score'], label='Math', marker='o')
+    plt.plot(student_data['Attempt'], student_data['Science Score'], label='Science', marker='o')
+    plt.plot(student_data['Attempt'], student_data['English Score'], label='English', marker='o')
+
+    plt.title(f"Score Fatigue Over Attempts - {student}")
+    plt.xlabel("Attempt")
+    plt.ylabel("Score")
+    plt.ylim(0, 100)
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
