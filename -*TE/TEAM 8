@@ -1,0 +1,61 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+file_path = 'Sleep_health_and_lifestyle_dataset.csv'  # Replace with your actual path
+df = pd.read_csv(file_path)
+def circadian_drive(t):
+    return np.sin((2 * np.pi / 24) * (t - 6))  # Peak at ~2 PM
+
+def homeostatic_pressure(hours_awake):
+    return 1 - np.exp(-hours_awake / 18)
+
+def decision_conflict_model(time_of_day, hours_since_sleep, sleep_duration):
+    circadian = circadian_drive(time_of_day)
+    recovery = min(sleep_duration / 8.0, 1.0)
+    E = 0.6 * circadian + 0.4 * recovery
+    I = homeostatic_pressure(hours_since_sleep)
+    alertness = (E - I + 1) / 2  # Normalize to [0, 1]
+    return np.clip(alertness, 0, 1), E, I
+
+def simulate_alertness(df, wake_time=6):
+    results = []
+
+    for idx, row in df.iterrows():
+        person_id = row['Person ID']
+        sleep_duration = row['Sleep Duration']
+
+        for t in np.arange(0, 24, 1):  # Simulate every hour
+            hours_since_sleep = (t - wake_time) % 24
+            alertness, E, I = decision_conflict_model(t, hours_since_sleep, sleep_duration)
+
+            results.append({
+                'Person ID': person_id,
+                'Hour': t,
+                'Sleep Duration': sleep_duration,
+                'Alertness': alertness,
+                'Excitatory': E,
+                'Inhibitory': I
+            })
+
+    return pd.DataFrame(results)
+
+alertness_df = simulate_alertness(df, wake_time=6)
+alertness_df.to_csv('alertness_output.csv', index=False)
+print("Alertness predictions saved to alertness_output.csv")
+def plot_alertness_curve(alertness_df, person_id):
+    person_data = alertness_df[alertness_df['Person ID'] == person_id]
+    plt.figure(figsize=(10, 5))
+    plt.plot(person_data['Hour'], person_data['Alertness'], label='Alertness', linewidth=2)
+    plt.plot(person_data['Hour'], person_data['Excitatory'], '--', label='Excitatory (E)', color='green')
+    plt.plot(person_data['Hour'], person_data['Inhibitory'], '--', label='Inhibitory (I)', color='red')
+    plt.title(f'Alertness Curve for Person ID {person_id}')
+    plt.xlabel('Hour of Day')
+    plt.ylabel('Level (0-1)')
+    plt.grid(True, linestyle='--')
+    plt.xticks(np.arange(0, 25, 2))
+    plt.ylim(0, 1)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+plot_alertness_curve(alertness_df, person_id=1)
