@@ -1,0 +1,131 @@
+import pandas as pd
+import numpy as np
+import re
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.multioutput import MultiOutputClassifier
+from sklearn.metrics import classification_report
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+df = pd.read_csv('/go_emotions_dataset.csv')
+df.head()
+df.describe()
+print(df.shape)
+
+check_null=df.isnull().sum()
+check_null
+df.drop(columns=['id', 'example_very_unclear'], inplace=True, errors='ignore')
+import re
+
+def clean_text(text):
+    text = str(text).lower()
+    text = re.sub(r"http\S+|www\S+|https\S+", '', text)   
+    text = re.sub(r"@\w+|\#", '', text)                     
+    text = re.sub(r"[^A-Za-z0-9\s]", '', text)               
+    text = re.sub(r"\s+", ' ', text).strip()           
+    return text
+df['text'] = df['text'].apply(clean_text)
+df['text'].head()
+emotion_cols = [col for col in df.columns if col not in ['text']]
+scaler = StandardScaler()
+df[emotion_cols] = scaler.fit_transform(df[emotion_cols])
+df['dominant_emotion'] = df[emotion_cols].idxmax(axis=1)
+negative_emotions = ['anger', 'annoyance', 'disappointment', 'disapproval', 'disgust', 'embarrassment', 'fear', 'grief', 'nervousness', 'remorse', 'sadness']
+df['total_negative'] = df[negative_emotions].sum(axis=1)
+
+np.random.seed(42)
+df['hour_of_day'] = np.random.randint(0, 24, size=len(df))
+
+def circadian_alertness(hour):
+    if 2 <= hour <= 6:
+        return 0.2
+    elif 7 <= hour <= 9 or 18 <= hour <= 22:
+        return 0.5
+    elif 10 <= hour <= 17:
+        return 1.0
+    else:
+        return 0.3
+
+df['alertness_level'] = df['hour_of_day'].apply(circadian_alertness)
+
+df['adjusted_negative'] = df['total_negative'] * (1 - df['alertness_level'])
+
+THRESHOLD = 0.5
+df['block_output'] = (df['adjusted_negative'] > THRESHOLD).astype(int)
+X_text = df['text']
+y_emotions = df[emotion_cols]
+
+vectorizer = TfidfVectorizer(max_features=3000)
+X_vec = vectorizer.fit_transform(X_text)
+binary_emotion_df = df[emotion_cols].apply(lambda x: (x > 0).astype(int))
+
+X_train, X_test, y_train, y_test = train_test_split(X_vec, binary_emotion_df, test_size=0.2, random_state=42)
+
+emotion_model = MultiOutputClassifier(LogisticRegression(max_iter=1000))
+emotion_model.fit(X_train, y_train)
+X_block = df.drop(columns=['text', 'dominant_emotion', 'block_output'])
+y_block = df['block_output']
+
+block_model = Sequential([
+    Dense(32, activation='relu', input_shape=(X_block.shape[1],)),
+    Dense(16, activation='relu'),
+    Dense(1, activation='sigmoid')
+])
+
+block_model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+block_model.fit(X_block, y_block, epochs=10, batch_size=16, validation_split=0.2)
+
+def full_prediction_pipeline(text, hour_of_day=9):
+    clean = clean_text(text)
+    vec = vectorizer.transform([clean])
+    emotion_scores = emotion_model.predict(vec)[0]
+    
+    # Create emotion score dict
+    emotion_score_dict = dict(zip(emotion_cols, emotion_scores))
+    
+    # Calculate total negative
+    total_negative = sum([emotion_score_dict[e] for e in negative_emotions])
+    
+    # Get alertness level
+    alertness = circadian_alertness(hour_of_day)
+    
+    # Adjusted inhibitory score
+    adjusted_negative = total_negative * (1 - alertness)
+    
+    # Block or not
+    block = 1 if adjusted_negative > THRESHOLD else 0
+    
+    # Dominant emotion
+    dominant_emotion = max(emotion_score_dict, key=emotion_score_dict.get)
+    
+    return {
+        'dominant_emotion': dominant_emotion,
+        'emotion_scores': emotion_score_dict,
+        'total_negative': total_negative,
+        'alertness_level': alertness,
+        'adjusted_negative': adjusted_negative,
+        'block_output': block
+    }
+
+#SAMPLE INPUT:
+sample = "I feel happy, pain funny, joyful today"
+result = full_prediction_pipeline(sample, hour_of_day=3)
+
+print("Sample Text:", sample)
+print("Dominant Emotion:", result['dominant_emotion'])
+print("Adjusted Negative Score:", result['adjusted_negative'])
+print("Block Output:", "BLOCKED " if result['block_output'] else "ALLOWED ")
+print("Top Emotions:", {k: v for k, v in result['emotion_scores'].items() if v > 0})
+
+
+
+
+
+
+
+
+
