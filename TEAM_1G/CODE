@@ -1,0 +1,144 @@
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.optimizers import Adam
+from sklearn.metrics import accuracy_score
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.model_selection import train_test_split
+
+
+
+# Load dataset (make sure the CSV file is in the same folder or give full path)
+df = pd.read_csv(r"D:\\WA_Fn-UseC_-HR-Employee-Attrition.csv")
+
+# Display the first few rows
+df.head()
+
+
+
+# Convert 'Attrition' from Yes/No to 1/0
+df['Attrition'] = df['Attrition'].map({'Yes': 1, 'No': 0})
+
+
+
+# Define push and inhibit features
+push_factors = ['OverTime', 'DistanceFromHome', 'YearsSinceLastPromotion', 'JobInvolvement', 'WorkLifeBalance']
+inhibit_factors = ['MonthlyIncome', 'TotalWorkingYears', 'StockOptionLevel', 'YearsAtCompany', 'EnvironmentSatisfaction']
+
+# Combine selected features
+selected_features = push_factors + inhibit_factors
+
+
+
+# Convert 'OverTime' to 1/0
+df['OverTime'] = LabelEncoder().fit_transform(df['OverTime'])
+
+# Drop missing values just in case
+df = df.dropna()
+
+
+
+# Normalize the selected features
+scaler = StandardScaler()
+X = scaler.fit_transform(df[selected_features])
+y = df['Attrition'].values
+
+
+
+# 80% training, 20% testing
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Check shape
+X_train.shape, X_test.shape
+
+
+
+model = Sequential([
+    Dense(1, input_dim=X_train.shape[1], activation='sigmoid')  # Single neuron with sigmoid activation
+])
+
+
+
+# We use Adam optimizer and binary crossentropy loss because this is a binary classification problem
+model.compile(optimizer=Adam(learning_rate=0.01), loss='binary_crossentropy', metrics=['accuracy'])
+
+
+
+# We train the model for 100 epochs and use 10% of the training data for validation
+history = model.fit(X_train, y_train, epochs=100, validation_split=0.1, verbose=1)
+
+
+# Predict the probabilities, convert to class (0 or 1), and calculate test accuracy
+y_pred = model.predict(X_test)
+y_pred_classes = (y_pred > 0.5).astype(int)
+
+
+
+print("Test Accuracy:", accuracy_score(y_test, y_pred_classes))
+
+
+
+# Visualize training and validation accuracy over epochs
+import matplotlib.pyplot as plt
+
+plt.plot(history.history['accuracy'], label='Train Accuracy')
+plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.title('Model Training Accuracy')
+plt.legend()
+plt.show()
+
+
+
+# Train the model again
+model.fit(X_train, y_train, epochs=100, batch_size=32, verbose=1)
+
+# Evaluate the model
+loss, accuracy = model.evaluate(X_test, y_test)
+print(f"Test Accuracy: {accuracy:.2f}")
+
+# Make predictions
+predictions = model.predict(X_test)
+predictions = (predictions > 0.5).astype("int32")
+
+# Show sample predictions
+for i in range(5):
+    print(f"Predicted: {predictions[i][0]}, Actual: {y_test[i]}")
+
+
+
+# Add some Gaussian noise to test inputs to simulate "noisy sensors"
+noise = np.random.normal(0, 0.1, X_test.shape)
+X_test_noisy = X_test + noise
+
+# Evaluate model on noisy input
+loss_noisy, acc_noisy = model.evaluate(X_test_noisy, y_test)
+print(f"Noisy Test Accuracy: {acc_noisy:.2f}")
+
+
+
+# Predict using noisy data
+predictions_noisy = model.predict(X_test_noisy)
+predictions_noisy = (predictions_noisy > 0.5).astype("int32")
+
+
+
+# Bar chart comparison
+labels = ['Clean', 'Noisy']
+accuracies = [accuracy, acc_noisy]
+
+plt.bar(labels, accuracies, color=['green', 'orange'])
+plt.title("Model Accuracy: Clean vs Noisy Input")
+plt.ylabel("Accuracy")
+plt.show()
+
+
+
+import joblib
+
+# Save model and scaler
+model.save("neuron_model.keras")
+joblib.dump(scaler, "scaler.pkl")
