@@ -1,0 +1,74 @@
+import pandas as pd
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report
+import joblib
+
+# === Configuration ===
+NEGATIVE_EMOTIONS = ['sadness', 'anger', 'fear']
+INHIBITORY_THRESHOLD = 0.6
+
+# === Load Dataset with Semicolon Separator ===
+def load_dataset(path):
+    df = pd.read_csv(path, sep=";", header=None, names=["text", "emotion"], engine="python", quoting=3)
+    
+    # Simulate intensity column (randomized for now)
+    np.random.seed(42)
+    df['intensity'] = np.round(np.random.uniform(0.3, 1.0, len(df)), 2)
+    
+    return df
+
+# === Train Emotion Detection Model ===
+def train_emotion_detector(train_path, val_path):
+    train_df = load_dataset(train_path)
+    val_df = load_dataset(val_path)
+
+    # TF-IDF vectorization
+    vectorizer = TfidfVectorizer()
+    X_train = vectorizer.fit_transform(train_df['text'])
+    y_train = train_df['emotion']
+
+    model = LogisticRegression(max_iter=500)
+    model.fit(X_train, y_train)
+
+    # Validation
+    X_val = vectorizer.transform(val_df['text'])
+    y_val = val_df['emotion']
+    val_preds = model.predict(X_val)
+
+    print("\n📊 Validation Results:")
+    print(classification_report(y_val, val_preds))
+
+    # Save model and vectorizer
+    joblib.dump(model, "emotion_model.pkl")
+    joblib.dump(vectorizer, "vectorizer.pkl")
+
+# === Inhibitory Filtering Logic ===
+def inhibitory_filter(test_path):
+    test_df = load_dataset(test_path)
+    model = joblib.load("emotion_model.pkl")
+    vectorizer = joblib.load("vectorizer.pkl")
+
+    X_test = vectorizer.transform(test_df['text'])
+    predicted_emotions = model.predict(X_test)
+
+    print("\n🧠 Inhibitory Neuron Filtering Output:\n")
+    for text, emotion, intensity in zip(test_df['text'], predicted_emotions, test_df['intensity']):
+        intensity = float(intensity)
+        if emotion in NEGATIVE_EMOTIONS and intensity > INHIBITORY_THRESHOLD:
+            print(f"🔴 [BLOCKED] \"{text}\" → Emotion: {emotion}, Intensity: {intensity}")
+        else:
+            print(f"🟢 [ALLOWED] \"{text}\" → Emotion: {emotion}, Intensity: {intensity}")
+
+# === Main Execution ===
+if __name__ == "__main__":
+    train_path = "train.txt"
+    val_path = "val.txt"
+    test_path = "test.txt"
+
+    print("🚀 Training Emotion Classifier...")
+    train_emotion_detector(train_path, val_path)
+
+    print("\n🚥 Running Output Filter...")
+    inhibitory_filter(test_path)
