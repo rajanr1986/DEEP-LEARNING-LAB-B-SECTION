@@ -1,0 +1,199 @@
+from __future__ import annotations
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from typing import Callable, Optional, List, Dict, Union
+
+
+def _default_init_weights(n: int, sparsity: float = 0.5, scale: float = 0.5) -> np.ndarray:
+    W = np.random.rand(n, n) * scale
+    mask = np.random.rand(n, n) < sparsity
+    np.fill_diagonal(mask, 0)
+    W *= mask
+    return W
+
+
+
+class SynapticPlasticityTracker:
+
+    def __init__(
+        self,
+        num_neurons: int,
+        initial_weights: Optional[np.ndarray] = None,
+        learning_rule: str = "hebbian",
+        learning_rate: float = 0.1,
+        stdp_params: Optional[Dict[str, float]] = None,
+        custom_rule: Optional[
+            Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray]
+        ] = None,
+    ):
+        self.n = num_neurons
+        self.W = (
+            initial_weights.copy()
+            if initial_weights is not None
+            else _default_init_weights(num_neurons)
+        )
+        if self.W.shape != (self.n, self.n):
+            raise ValueError("initial_weights must be square (n×n)")
+
+        self.rule = learning_rule.lower()
+        if self.rule not in {"hebbian", "stdp", "custom"}:
+            raise ValueError("learning_rule must be 'hebbian', 'stdp', or 'custom'")
+
+        self.eta = learning_rate
+        self.stdp_params = {
+            "tau_plus": 20.0,
+            "tau_minus": 20.0,
+            "A_plus": 1.0,
+            "A_minus": 1.2,
+        }
+        if stdp_params:
+            self.stdp_params.update(stdp_params)
+
+        self.custom_rule = custom_rule
+        if self.rule == "custom" and not callable(self.custom_rule):
+            raise ValueError("Provide custom_rule function when learning_rule='custom'")
+
+        self.weight_history: List[np.ndarray] = []
+        self.time: int = 0
+        self.last_spike_time = -np.inf * np.ones(self.n)  # for STDP
+
+    def _hebbian(self, pre: np.ndarray, post: np.ndarray) -> np.ndarray:
+        """
+        ΔW_ij = η * pre_i * post_j
+        """
+        return self.eta * np.outer(pre, post)
+
+    def _stdp(self, pre: np.ndarray, post: np.ndarray) -> np.ndarray:
+       
+        t = self.time
+        dt_post_pre = (self.last_spike_time - t)[None, :]  # shape (1, n)
+        dt_pre_post = (t - self.last_spike_time)[:, None]  # shape (n, 1)
+
+        A_plus = self.stdp_params["A_plus"]
+        A_minus = self.stdp_params["A_minus"]
+        tau_plus = self.stdp_params["tau_plus"]
+        tau_minus = self.stdp_params["tau_minus"]
+
+        # Compute pair‑wise contributions
+        dw_plus = A_plus * np.exp(-dt_post_pre / tau_plus) * pre[:, None] * post[None, :]
+        dw_minus = -A_minus * np.exp(-dt_pre_post / tau_minus) * post[:, None] * pre[None, :]
+
+        return self.eta * (dw_plus + dw_minus)
+
+
+    def _update_weights(self, pre: np.ndarray, post: np.ndarray):
+        if self.rule == "hebbian":
+            dW = self._hebbian(pre, post)
+        elif self.rule == "stdp":
+            dW = self._stdp(pre, post)
+        elif self.rule == "custom":
+            dW = self.custom_rule(self.W, pre, post) * self.eta
+        else:
+            raise RuntimeError("Unknown learning rule")
+
+        np.fill_diagonal(dW, 0.0)
+
+        self.W += dW
+        self.W = np.clip(self.W, 0.0, None)
+
+    def simulate(
+        self,
+        spike_train: Union[np.ndarray, List[List[int]]],
+        save_csv: Optional[str] = None,
+        plot: bool = False,
+        verbose: bool = False,
+    ):
+        spikes = np.asarray(spike_train, dtype=int)
+        T, n = spikes.shape
+        if n != self.n:
+            raise ValueError(f"spike_train has {n} neurons, expected {self.n}")
+
+        self.weight_history.append(self.W.copy())  # initial state
+
+        for t in range(T):
+            self.time = t
+            pre = spikes[t]
+            post = pre  
+
+            self._update_weights(pre, post)
+
+            self.last_spike_time[pre.astype(bool)] = t
+
+            self.weight_history.append(self.W.copy())
+            if verbose:
+                fired = np.where(pre)[0].tolist()
+                print(f"t={t:02d} fired: {fired}  | mean w={self.W.mean():.3f}")
+
+        if save_csv:
+            self._save_history_csv(save_csv)
+
+        if plot:
+            self._plot_evolution()
+
+
+    def _save_history_csv(self, fname: str):
+        
+        records = []
+        for t, W in enumerate(self.weight_history):
+            i_idx, j_idx = np.nonzero(np.ones_like(W))
+            for i, j in zip(i_idx, j_idx):
+                records.append((t, i, j, W[i, j]))
+        df = pd.DataFrame(records, columns=["time", "i", "j", "weight"])
+        df.to_csv(fname, index=False)
+        print(f"[SynapticPlasticityTracker] weight log saved → {fname!r}")
+
+    def _plot_evolution(self):
+        hist = np.stack(self.weight_history)  
+        T = hist.shape[0]
+        fig, ax = plt.subplots(figsize=(8, 4))
+        for i in range(self.n):
+            for j in range(self.n):
+                if i == j:
+                    continue
+                ax.plot(range(T), hist[:, i, j], lw=0.8, alpha=0.7)
+        ax.set_xlabel("Time step")
+        ax.set_ylabel("Weight value")
+        ax.set_title("Synaptic weight evolution")
+        plt.tight_layout()
+        plt.show()
+
+
+    @property
+    def final_weights(self) -> np.ndarray:
+        return self.W.copy()
+
+    def get_history(self) -> np.ndarray:
+        return np.stack(self.weight_history)
+
+    def __repr__(self):
+        return (
+            f"<SynapticPlasticityTracker n={self.n} rule={self.rule!r} "
+            f"eta={self.eta} time={self.time}>"
+        )
+
+
+
+if __name__ == "__main__":
+    np.random.seed(42)
+
+    tracker = SynapticPlasticityTracker(
+        num_neurons=4,
+        learning_rule="stdp",
+        learning_rate=0.02,
+    )
+
+    spike_pattern = np.array(
+        [
+            [1, 0, 0, 1],
+            [0, 1, 0, 0],
+            [1, 1, 0, 0],
+            [0, 0, 1, 1],
+        ]
+    )
+    spike_train = np.tile(spike_pattern, (5, 1))  # 20 time steps
+
+    tracker.simulate(spike_train, save_csv=None, plot=True, verbose=True)
+
+    print("\nFinal weight matrix:")
+    print(np.round(tracker.final_weights, 3))
